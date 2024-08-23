@@ -15,6 +15,8 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.faiss import DistanceStrategy
+from langchain_community.embeddings import FastEmbedEmbeddings
+
 # from langchain_community.embeddings import HuggingFaceEmbeddings
 # from langchain_huggingface import HuggingFaceEmbeddings
 # from langchain_huggingface.embeddings import HuggingFaceEmbeddings
@@ -26,6 +28,7 @@ from langchain_core.documents import Document
 
 from langchain_chroma import Chroma
 # embeddings = FakeEmbeddings(size=4096)
+# embeddings = FastEmbedEmbeddings(model_name="fasttext-wiki-news-300d")  # Replace with your desired model
 
 # embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-mpnet-base-v2')
 
@@ -47,12 +50,15 @@ def clear_message():
 
 def upload_resume():
     if st.session_state.resume_uploaded is not None:
+        summary_list = list()
         for file in st.session_state.resume_uploaded:
             bytes_data = file.read()
             resume_text = extract_text(bytes_data)
             
-            summarize_resume_google(resume_text)
+            summary_list.append(Document(page_content= summarize_resume_google(resume_text), metadata={"Resume Name:", file.name}))
             st.write("Resume Name:", file.name)
+            # st.write(summary)
+        store_vector_data(summary_list)
 
 def extract_text(file_data):
     try:
@@ -134,20 +140,24 @@ def summarize_resume_google(resume_text):
                 ]
         summary = llm.invoke(messages)
         summary_text = summary.content
-        st.write(f"{aspect.title()} Summary:")
-        st.write(summary_text)
+
         data.append(summary_text)
         
     return data
 
 def init_vector_store():
-    vector_store = Chroma(
+    st.session_state.vector_store = Chroma(
             collection_name="example_collection",
-            embedding_function=embeddings,
+            embedding_function=st.session_state.embedding_model,
+            embedding_store=st.session_state.vectordb,
             persist_directory="./chroma_langchain_db",
         )
     
-def store_vector_data(data):
+def store_vector_data(documents):
+    
+    uuids = [str(uuid4()) for _ in range(len(documents))]
+
+    vector_store.add_documents(documents=documents, ids=uuids)
     
     
 def upload_job_req():
@@ -158,9 +168,19 @@ def upload_job_req():
 
 
 user_query = st.chat_input("Type your message here...")
-init_vector_store()
+
 if "embedding_model" not in st.session_state:
-    st.session_state.embedding_model = HuggingFaceEmbeddings(model_name=os.getenv("EMBEDDING_MODEL"), model_kwargs={"device": "cpu"})
+    st.session_state.embedding_model = HuggingFaceEmbeddings(model_name = EMBEDDING_MODEL)
+
+if "rag_pipeline" not in st.session_state:
+    
+    # vectordb = FAISS.load_local(FAISS_INDEXER_DIR, st.session_state.embedding_model, distance_strategy=DistanceStrategy.COSINE, allow_dangerous_deserialization=True)
+    if os.path.exists(FAISS_INDEXER_DIR):
+        st.session_state.vectordb = FAISS.load_local(FAISS_INDEXER_DIR, st.session_state.embedding_model, distance_strategy=DistanceStrategy.COSINE,  allow_dangerous_deserialization=True)
+    else:
+        st.session_state.vectordb = FAISS(st.session_state.embedding_model, distance_strategy=DistanceStrategy.COSINE)
+
+init_vector_store()
 
 with st.sidebar:
     st.text_input("OpenAI's API Key", type="password", key="api_key")
