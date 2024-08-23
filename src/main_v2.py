@@ -5,7 +5,10 @@ from io import BytesIO
 import streamlit as st
 from openai import OpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+
 from config import *
+from hf_spaces_inference import hf_spaces_infr
 
 from streamlit_modal import Modal
 import PyPDF2
@@ -42,36 +45,24 @@ def delete_collection():
     except Exception as e:
         raise Exception(f"Unable to delete collection: {e}")
 
-def save_pdfs():
-    """
-    Saves uploaded PDF files to a specified directory.
-
-    Args:
-        uploaded_pdfs (list): A list of uploaded PDF files.
-        save_dir (str): The directory where the PDF files should be saved.
-    """
+def save_pdfs(data, file_name):
 
     if not os.path.exists(TEMP_DATA_DIR):
         os.makedirs(TEMP_DATA_DIR)
-
-    for pdf_file in st.session_state.resume_uploaded:
-        bytes_data = pdf_file.read()
-        pdf_stream = BytesIO(bytes_data)
         
-        pdf_reader = PyPDF2.PdfFileReader(pdf_stream)
-        pdf_writer = PyPDF2.PdfWriter()
+    pdf_stream = BytesIO(data)
+    pdf_reader = PyPDF2.PdfFileReader(pdf_stream)
+    pdf_writer = PyPDF2.PdfWriter()
 
-        # Copy all pages from the uploaded PDF to the new PDF
-        for page_num in range(len(pdf_reader.pages)):
-            pdf_writer.add_page(pdf_reader.getPage(page_num))
+    for page_num in range(len(pdf_reader.pages)):
+        pdf_writer.add_page(pdf_reader.getPage(page_num))
 
-        # Save the new PDF file
-        pdf_filename = pdf_file.name.split('.')[0] + '_saved.pdf'
-        save_path = os.path.join(TEMP_DATA_DIR, pdf_filename)
-        with open(save_path, 'wb') as output_file:
-            pdf_writer.write(output_file)
+    pdf_filename = file_name.split('.')[0] + '_saved.pdf'
+    save_path = os.path.join(TEMP_DATA_DIR, pdf_filename)
+    with open(save_path, 'wb') as output_file:
+        pdf_writer.write(output_file)
 
-        st.success(f"PDF saved to: {save_path}")
+    st.success(f"PDF saved to: {save_path}")
 
 def upload_resume():
     if st.session_state.resume_uploaded is not None:
@@ -80,14 +71,15 @@ def upload_resume():
         for file in st.session_state.resume_uploaded:
             bytes_data = file.read()
             resume_text = extract_text(bytes_data)
-            summary_data = summarize_resume_google(resume_text)
+            summary_data = summarize_resume_hf(resume_text)
             
             document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
             summary_list.append(document)
             st.write("Resume Name:", file.name)
             st.write(summary_data)
+            save_pdfs(data= bytes_data, file_name = str(file.name))
         store_vector_data(summary_list)
-        save_pdfs()
+        
 
 def extract_text(file_data):
     try:
@@ -174,6 +166,20 @@ def summarize_resume_google(resume_text):
         
     return ' '.join(data)
 
+def summarize_resume_hf(resume_text):
+    prompts = {
+        "experience": f"Summarize the professional experience section of the following text:\n{resume_text}",
+        "technical_skills": f"Summarize the technical skills section of the following text:\n{resume_text}",
+        "education": f"Summarize the education background section of the following text:\n{resume_text}",
+    }
+    data = list()
+    sys_instruction = "You are a professional document summary creator who mainly focussed on job resumes"
+    for aspect, prompt in prompts.items():
+        summary_text = hf_spaces_infr(sys_prompt=sys_instruction, message=prompt)
+        data.append(summary_text)
+    
+    return ' '.join(data)
+              
 def init_vector_store():
     st.session_state.vector_store = Chroma(
             collection_name="example_collection",
