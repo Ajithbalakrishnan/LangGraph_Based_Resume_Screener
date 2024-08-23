@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-./src/config.py
+.env
 # Distribution / packaging
 .Python
 build/
