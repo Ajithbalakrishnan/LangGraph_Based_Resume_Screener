@@ -15,31 +15,15 @@ import random
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.faiss import DistanceStrategy
-from langchain_community.embeddings import FastEmbedEmbeddings
-# from langchain_community.embeddings import HuggingFaceEmbeddings
-# from langchain_huggingface import HuggingFaceEmbeddings
-# from langchain_huggingface.embeddings import HuggingFaceEmbeddings
-# from langchain.embeddings.sentence_transformer import SentenceTransformerEmbeddings
+# from langchain_community.embeddings import FastEmbedEmbeddings
+
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_core.embeddings import FakeEmbeddings
+# from langchain_core.embeddings import FakeEmbeddings
 from langchain_core.documents import Document
 
 from langchain_chroma import Chroma
 
-# embeddings = FakeEmbeddings(size=4096)
-# embeddings = FastEmbedEmbeddings(model_name="fasttext-wiki-news-300d")  # Replace with your desired model
-
-# embeddings = HuggingFaceEmbeddings(model_name='sentence-transformers/all-mpnet-base-v2')
-
-# model_name = "sentence-transformers/all-mpnet-base-v2"
-# model_kwargs = {'device': 'cpu'}
-# encode_kwargs = {'normalize_embeddings': False}
-# hf = HuggingFaceEmbeddings(
-#     model_name=model_name,
-#     model_kwargs=model_kwargs,
-#     encode_kwargs=encode_kwargs
-# )
 random.seed(10)
 load_dotenv()
 index_to_docstore_id = {}
@@ -49,29 +33,61 @@ def clear_message():
     st.session_state.chat_history = [AIMessage(content="Welcome")]
     # st.session_state.vector_store.clear()  
 
-# def delete_collection():
-#     try:
-#         your_collection_name = "your_collection_name"
-#         chroma_client = PersistentClient(path=".chroma")
-#         chroma_client.delete_collection(your_collection_name)
-#         print(f"Collection {collection_name} deleted successfully.")
-#     except Exception as e:
-#         raise Exception(f"Unable to delete collection: {e}")
-    
+def delete_collection():
+    try:
+        your_collection_name = "your_collection_name"
+        chroma_client = PersistentClient(path=".chroma")
+        chroma_client.delete_collection(your_collection_name)
+        print(f"Collection {collection_name} deleted successfully.")
+    except Exception as e:
+        raise Exception(f"Unable to delete collection: {e}")
+
+def save_pdfs():
+    """
+    Saves uploaded PDF files to a specified directory.
+
+    Args:
+        uploaded_pdfs (list): A list of uploaded PDF files.
+        save_dir (str): The directory where the PDF files should be saved.
+    """
+
+    if not os.path.exists(TEMP_DATA_DIR):
+        os.makedirs(TEMP_DATA_DIR)
+
+    for pdf_file in st.session_state.resume_uploaded:
+        bytes_data = pdf_file.read()
+        pdf_stream = BytesIO(bytes_data)
+        
+        pdf_reader = PyPDF2.PdfFileReader(pdf_stream)
+        pdf_writer = PyPDF2.PdfWriter()
+
+        # Copy all pages from the uploaded PDF to the new PDF
+        for page_num in range(len(pdf_reader.pages)):
+            pdf_writer.add_page(pdf_reader.getPage(page_num))
+
+        # Save the new PDF file
+        pdf_filename = pdf_file.name.split('.')[0] + '_saved.pdf'
+        save_path = os.path.join(TEMP_DATA_DIR, pdf_filename)
+        with open(save_path, 'wb') as output_file:
+            pdf_writer.write(output_file)
+
+        st.success(f"PDF saved to: {save_path}")
+
 def upload_resume():
     if st.session_state.resume_uploaded is not None:
         summary_list = list()
+        
         for file in st.session_state.resume_uploaded:
             bytes_data = file.read()
             resume_text = extract_text(bytes_data)
             summary_data = summarize_resume_google(resume_text)
             
             document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
-            # summary_list.append(
+            summary_list.append(document)
             st.write("Resume Name:", file.name)
             st.write(summary_data)
-            print("format summary_data : ",type(summary_data))
-        # store_vector_data(summary_list)
+        store_vector_data(summary_list)
+        save_pdfs()
 
 def extract_text(file_data):
     try:
@@ -169,7 +185,7 @@ def store_vector_data(documents):
     
     uuids = [str(uuid4()) for _ in range(len(documents))]
 
-    vector_store.add_documents(documents=documents, ids=uuids)
+    st.session_state.vector_store.add_documents(documents=documents, ids=uuids)
     
 def upload_job_req():
     if st.session_state.job_req_uploaded != None:
