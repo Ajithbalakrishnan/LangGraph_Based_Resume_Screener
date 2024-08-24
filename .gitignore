@@ -8,9 +8,9 @@ __pycache__/
 
 # code exceptions
 *.pdf
-.env
-question.txt
-.vscode
+*.env
+*question.txt
+*.vscode
 # Distribution / packaging
 .Python
 build/
