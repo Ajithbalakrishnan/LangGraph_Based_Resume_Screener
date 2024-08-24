@@ -216,7 +216,6 @@ def upload_job_req():
             job_req_text = extract_text(bytes_data)
             st.write("Job Requirement:", file.name)
             
-            
 user_query = st.chat_input("Type your message here...")
 
 if "embedding_model" not in st.session_state:
