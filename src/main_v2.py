@@ -6,9 +6,9 @@ import streamlit as st
 from openai import OpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-
 from config import *
 from hf_spaces_inference import hf_spaces_infr
+from groq_infrence import groq_infr
 
 from streamlit_modal import Modal
 import PyPDF2
@@ -18,11 +18,8 @@ import random
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.faiss import DistanceStrategy
-# from langchain_community.embeddings import FastEmbedEmbeddings
-
 
 from langchain_community.embeddings import HuggingFaceEmbeddings
-# from langchain_core.embeddings import FakeEmbeddings
 from langchain_core.documents import Document
 
 from langchain_chroma import Chroma
@@ -30,6 +27,7 @@ from langchain_chroma import Chroma
 random.seed(10)
 load_dotenv()
 index_to_docstore_id = {}
+
 
 def clear_message():
     st.session_state.resume_list = []
@@ -71,15 +69,14 @@ def upload_resume():
         for file in st.session_state.resume_uploaded:
             bytes_data = file.read()
             resume_text = extract_text(bytes_data)
-            summary_data = summarize_resume_hf(resume_text)
+            summary_data = summarize_resume_groq(resume_text)
             
             document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
             summary_list.append(document)
             st.write("Resume Name:", file.name)
             st.write(summary_data)
             save_pdfs(data= bytes_data, file_name = str(file.name))
-        store_vector_data(summary_list)
-        
+        store_vector_data(summary_list)   
 
 def extract_text(file_data):
     try:
@@ -142,6 +139,7 @@ def summarize_resume_google(resume_text):
         max_tokens=None,
         timeout=None,
         max_retries=2,
+        google_api_key=os.getenv("GOOGLE_API_KEY2")
     )
    
     prompts = {
@@ -179,7 +177,25 @@ def summarize_resume_hf(resume_text):
         data.append(summary_text)
     
     return ' '.join(data)
-              
+
+def summarize_resume_groq(resume_text):
+    prompt = f"""
+        Analize the following profile information of a candidate and generate a short summary on the each given aspects.
+        
+        Aspects:
+            experience: Summarize the professional experience section of the following text,
+            technical_skills: Summarize the technical skills section of the following text,
+            education: Summarize the education background section of the following text,
+        
+        Profile Information: \n{resume_text}
+    """
+    data = list()
+    sys_instruction = "You are a professional document summary creator who mainly focussed on job resumes"
+
+    summary_text = groq_infr(sys_prompt=sys_instruction, message=prompt)
+    
+    return summary_text 
+        
 def init_vector_store():
     st.session_state.vector_store = Chroma(
             collection_name="example_collection",
