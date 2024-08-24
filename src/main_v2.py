@@ -65,18 +65,18 @@ def save_pdfs(data, file_name):
 def upload_resume():
     if st.session_state.resume_uploaded is not None:
         summary_list = list()
-        
-        for file in st.session_state.resume_uploaded:
-            bytes_data = file.read()
-            resume_text = extract_text(bytes_data)
-            summary_data = summarize_resume_groq(resume_text)
-            
-            document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
-            summary_list.append(document)
-            st.write("Resume Name:", file.name)
-            st.write(summary_data)
-            save_pdfs(data= bytes_data, file_name = str(file.name))
-        store_vector_data(summary_list)   
+        with st.toast('Processing the uploaded data. This may take a while...'):
+            for file in st.session_state.resume_uploaded:
+                bytes_data = file.read()
+                resume_text = extract_text(bytes_data)
+                summary_data = summarize_resume_groq(resume_text)
+                
+                document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
+                summary_list.append(document)
+                st.write("Resume Name:", file.name)
+                st.write(summary_data)
+                save_pdfs(data= bytes_data, file_name = str(file.name))
+            store_vector_data(summary_list)   
 
 def extract_text(file_data):
     try:
@@ -213,9 +213,10 @@ def upload_job_req():
     if st.session_state.job_req_uploaded != None:
         for file in st.session_state.job_req_uploaded:
             bytes_data = file.read()
+            job_req_text = extract_text(bytes_data)
             st.write("Job Requirement:", file.name)
-
-
+            
+            
 user_query = st.chat_input("Type your message here...")
 
 if "embedding_model" not in st.session_state:
@@ -235,7 +236,7 @@ with st.sidebar:
     st.file_uploader("Upload resumes", type=["pdf"], key="resume_uploaded", on_change=upload_resume, accept_multiple_files=True)
     st.button("Clear", on_click=clear_message)
     st.file_uploader("Upload job requirement", type=["pdf"], key="job_req_uploaded", on_change=upload_job_req)
-
+    st.button("Profile Analysis", on_click=clear_message)
 
 def main():
     st.title("Resume Screener")
