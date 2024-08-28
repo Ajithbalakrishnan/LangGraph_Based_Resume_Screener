@@ -1,28 +1,28 @@
 import os
 import sys
 from io import BytesIO
+import time
 
+import random 
+import PyPDF2
 import streamlit as st
 from openai import OpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from config import *
-from hf_spaces_inference import hf_spaces_infr
-from groq_infrence import groq_infr
+from uuid import uuid4
+from dotenv import load_dotenv, dotenv_values
 
 from streamlit_modal import Modal
-import PyPDF2
-from dotenv import load_dotenv, dotenv_values
-from uuid import uuid4
-import random 
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.faiss import DistanceStrategy
-
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.documents import Document
-
 from langchain_chroma import Chroma
+
+from config import *
+from utilities import save_pdfs, generate_fake_summary, check_chroma_db
+from hf_spaces_inference import hf_spaces_infr
+from groq_infrence import groq_infr
 
 random.seed(10)
 load_dotenv()
@@ -32,6 +32,7 @@ index_to_docstore_id = {}
 def clear_message():
     st.session_state.resume_list = []
     st.session_state.chat_history = [AIMessage(content="Welcome")]
+  
     # st.session_state.vector_store.clear()  
 
 def delete_collection():
@@ -43,58 +44,63 @@ def delete_collection():
     except Exception as e:
         raise Exception(f"Unable to delete collection: {e}")
 
-def save_pdfs(data, file_name):
-
-    if not os.path.exists(TEMP_DATA_DIR):
-        os.makedirs(TEMP_DATA_DIR)
-        
-    pdf_stream = BytesIO(data)
-    pdf_reader = PyPDF2.PdfFileReader(pdf_stream)
-    pdf_writer = PyPDF2.PdfWriter()
-
-    for page_num in range(len(pdf_reader.pages)):
-        pdf_writer.add_page(pdf_reader.getPage(page_num))
-
-    pdf_filename = file_name.split('.')[0] + '_saved.pdf'
-    save_path = os.path.join(TEMP_DATA_DIR, pdf_filename)
-    with open(save_path, 'wb') as output_file:
-        pdf_writer.write(output_file)
-
-    st.success(f"PDF saved to: {save_path}")
-
 def upload_resume():
+    # modal_key = f"resume_error_{random.randint(1, 1000)}" 
+    # modal = Modal(key=modal_key, title="File Error", max_width=500)
     if st.session_state.resume_uploaded is not None:
         summary_list = list()
         with st.toast('Processing the uploaded data. This may take a while...'):
             for file in st.session_state.resume_uploaded:
-                bytes_data = file.read()
-                resume_text = extract_text(bytes_data)
-                summary_data = summarize_resume_groq(resume_text)
-                
-                document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
-                summary_list.append(document)
-                st.write("Resume Name:", file.name)
-                st.write(summary_data)
-                save_pdfs(data= bytes_data, file_name = str(file.name))
-            store_vector_data(summary_list)   
+                try:
+                    
+                    bytes_data = file.read()
+                    resume_text = extract_text(bytes_data)
+                   
+                    summary_data = generate_fake_summary(resume_text)
+                    st.write(f"summary_data: {summary_data}")
+                    print("summary_data : ",summary_data)
+                   
+                    document = Document(page_content= summary_data, metadata={"Resume_Name": str(file.name)}, id=random.random())
+                    summary_list.append(document)
+                    st.write("Resume Name:", file.name)
+                    st.write(summary_data)
+                    save_pdfs(data= bytes_data, file_name = str(file.name), st=st)
 
+
+# TODO WHile appending to chromadb, we have to remove the file from the list of documents
+                
+                except Exception as error:
+                    # with modal.container():
+                        st.write("The uploaded resume file returns the following error message. Please check your pdf file again.")
+                        st.write(error)
+                        print("The uploaded resume file returns the following error message ", error)
+            try:
+                store_vector_data(summary_list)
+                
+            except Exception as error:
+                    # with modal.container():
+                        st.write("The uploaded resume files couldn't save in DB. Please check the error message.")
+                        st.write(error)
+            else:
+                st.write("Sucessfully stored the resume files to DB")
+                
+
+    
 def extract_text(file_data):
     try:
         pdf_stream = BytesIO(file_data)
         pdf_reader = PyPDF2.PdfFileReader(pdf_stream)
         text = ""
         for page in range(pdf_reader.getNumPages()):
-            text += pdf_reader.getPage(page).extractText()
-        
+            text += pdf_reader.getPage(page).extract_text()
+        return text
     except UnicodeDecodeError:
-        st.error("Error: Could not decode PDF. Please try a different file.")
+        st.write("Error: Could not decode PDF. Please try a different file.")
         return 
     except Exception as e:
-        st.error("An error occurred while extracting text:", e)
+        st.write (f"An error occurred while extracting text:{e}")
 
         return ""
-    else:
-        return text
 
 def summarize_resume_openai(resume_text):
 
@@ -110,7 +116,7 @@ def summarize_resume_openai(resume_text):
         "technical_skills": f"Summarize the technical skills section of the following text:\n{resume_text}",
         "education": f"Summarize the education background section of the following text:\n{resume_text}",
     }
-
+    data=list()
     for aspect, prompt in prompts.items():
         # summary = openai.Completion.create(engine="text-davinci-003", prompt=prompt, max_tokens=100)
         summary = client.chat.completions.create(
@@ -125,9 +131,9 @@ def summarize_resume_openai(resume_text):
         summary_text = summary.choices[0].text.strip()
         st.write(f"{aspect.title()} Summary:")
         st.write(summary_text)
-    
-        embedding = HuggingFaceEmbeddings().encode(summary_text)
-        chroma_db.insert(f"resume_{aspect}", embedding)
+        data.append(summary_text)
+        
+    return ' '.join(data)
 
 def summarize_resume_google(resume_text):
 
@@ -189,7 +195,7 @@ def summarize_resume_groq(resume_text):
         
         Profile Information: \n{resume_text}
     """
-    data = list()
+   
     sys_instruction = "You are a professional document summary creator who mainly focussed on job resumes"
 
     summary_text = groq_infr(sys_prompt=sys_instruction, message=prompt)
@@ -210,12 +216,18 @@ def store_vector_data(documents):
     st.session_state.vector_store.add_documents(documents=documents, ids=uuids)
     
 def upload_job_req():
-    if st.session_state.job_req_uploaded != None:
-        for file in st.session_state.job_req_uploaded:
-            bytes_data = file.read()
+    # modal_key = f"job_req_error_{random.randint(1, 1000)}"
+    # modal = Modal(key=modal_key, title="File Error", max_width=500)
+    if st.session_state.job_req_uploaded is not None:
+        try:  
+            bytes_data = st.session_state.job_req_uploaded.read()
             job_req_text = extract_text(bytes_data)
-            st.write("Job Requirement:", file.name)
+            st.write("Job Requirement:", st.session_state.job_req_uploaded.name)
             
+        except Exception as error:
+             with st.toast('The uploaded job requirement file returns the following error message. Please check your pdf file again'):
+                st.write(error)
+                
 user_query = st.chat_input("Type your message here...")
 
 if "embedding_model" not in st.session_state:
