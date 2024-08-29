@@ -65,7 +65,7 @@ def upload_resume():
                     st.write("Resume Name:", file.name)
                     st.write(summary_data)
                     save_pdfs(data= bytes_data, file_name = str(file.name), st=st)
-
+                    
 
 # TODO WHile appending to chromadb, we have to remove the file from the list of documents
                 
@@ -83,6 +83,7 @@ def upload_resume():
                         st.write(error)
             else:
                 st.write("Sucessfully stored the resume files to DB")
+                # st.session_state.resume_uploaded=None
                 
 
     
@@ -225,9 +226,21 @@ def upload_job_req():
             st.write("Job Requirement:", st.session_state.job_req_uploaded.name)
             
         except Exception as error:
-             with st.toast('The uploaded job requirement file returns the following error message. Please check your pdf file again'):
+            with st.toast('The uploaded job requirement file returns the following error message. Please check your pdf file again'):
                 st.write(error)
                 
+        else:
+            extract_K_chunks(job_req_text)
+            
+
+def extract_K_chunks(job_req_text):
+    results = st.session_state.vector_store.similarity_search_by_vector(
+    embedding= st.session_state.embedding_model.embed_query(job_req_text), k=10)
+    for doc in results:
+        print(f"* {doc.page_content} [{doc.metadata}]")
+    
+    
+    
 user_query = st.chat_input("Type your message here...")
 
 if "embedding_model" not in st.session_state:
