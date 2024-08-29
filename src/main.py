@@ -56,7 +56,7 @@ def upload_resume():
                     bytes_data = file.read()
                     resume_text = extract_text(bytes_data)
                    
-                    summary_data = generate_fake_summary(resume_text)
+                    summary_data = summarize_resume_openai(resume_text)
                     st.write(f"summary_data: {summary_data}")
                     print("summary_data : ",summary_data)
                    
@@ -67,7 +67,7 @@ def upload_resume():
                     save_pdfs(data= bytes_data, file_name = str(file.name), st=st)
                     
 
-# TODO WHile appending to chromadb, we have to remove the file from the list of documents
+    # TODO WHile appending to chromadb, we have to remove the file from the list of documents
                 
                 except Exception as error:
                     # with modal.container():
@@ -84,9 +84,7 @@ def upload_resume():
             else:
                 st.write("Sucessfully stored the resume files to DB")
                 # st.session_state.resume_uploaded=None
-                
-
-    
+                   
 def extract_text(file_data):
     try:
         pdf_stream = BytesIO(file_data)
